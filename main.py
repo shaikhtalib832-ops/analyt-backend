@@ -1,16 +1,17 @@
+# main.py
+
 from fastapi import FastAPI
-from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import os
+import json
+from datetime import datetime
 
 import gspread
-from google.oauth2.service_account import Credentials
-from datetime import datetime
-import json
-import os
 
 app = FastAPI()
 
-# CORS
+# ✅ Allow frontend requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,29 +20,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load credentials from ENV
-scope = ["https://www.googleapis.com/auth/spreadsheets"]
-
-creds_dict = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
-creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-
-client = gspread.authorize(creds)
-sheet = client.open("Analyt Waitlist").sheet1
-
-
-class Email(BaseModel):
+# ✅ Request model
+class EmailRequest(BaseModel):
     email: str
 
 
+# ✅ Connect to Google Sheets safely
+def get_sheet():
+    try:
+        creds_json = os.getenv("GOOGLE_CREDENTIALS")
+
+        if not creds_json:
+            print("❌ GOOGLE_CREDENTIALS not found")
+            return None
+
+        creds_dict = json.loads(creds_json)
+
+        gc = gspread.service_account_from_dict(creds_dict)
+
+        sheet = gc.open("Analyt Waitlist").sheet1
+
+        return sheet
+
+    except Exception as e:
+        print("❌ SHEETS CONNECTION ERROR:", e)
+        return None
+
+
+# ✅ Root (for testing)
 @app.get("/")
-def root():
+def home():
     return {"status": "API Running"}
 
 
+# ✅ Subscribe endpoint
 @app.post("/subscribe")
-def subscribe(data: Email):
-    sheet.append_row([
-        data.email,
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ])
-    return {"message": "Saved to Sheets"}
+def subscribe(data: EmailRequest):
+    email = data.email
+
+    sheet = get_sheet()
+
+    if sheet is None:
+        return {"error": "Google Sheets not connected"}
+
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        sheet.append_row([email, timestamp])
+
+        return {"message": "Saved successfully"}
+
+    except Exception as e:
+        print("❌ ERROR SAVING:", e)
+        return {"error": "Failed to save email"}
