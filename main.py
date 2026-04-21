@@ -1,37 +1,47 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-import csv, os
+
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
+import json
+import os
 
 app = FastAPI()
 
-# Allow frontend connection
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Load credentials from ENV
+scope = ["https://www.googleapis.com/auth/spreadsheets"]
+
+creds_dict = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
+creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+
+client = gspread.authorize(creds)
+sheet = client.open("Analyt Waitlist").sheet1
+
+
 class Email(BaseModel):
     email: str
 
-FILE = "emails.csv"
 
 @app.get("/")
-def home():
+def root():
     return {"status": "API Running"}
+
 
 @app.post("/subscribe")
 def subscribe(data: Email):
-    exists = os.path.isfile(FILE)
-
-    with open(FILE, "a", newline="") as f:
-        writer = csv.writer(f)
-
-        if not exists:
-            writer.writerow(["email"])
-
-        writer.writerow([data.email])
-
-    return {"success": True}
+    sheet.append_row([
+        data.email,
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ])
+    return {"message": "Saved to Sheets"}
